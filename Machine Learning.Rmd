@@ -1,0 +1,146 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Mohamed HAMOUD"
+date: "September 23, 2015"
+output: html_document
+---
+
+# Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har.
+
+# Getting Data
+
+## Downloading data
+
+```{r, eval=FALSE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+```   
+## loadind data into R
+
+```{r}
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```   
+
+# Data Processing
+
+## Removing columns with all NAs in the testing data
+Those columns cannot be used in prediction as we don't have information about, so they are to be removed
+
+### using a for loop to get the indices of the all NAs columns 
+```{r}
+index <- numeric()
+for (i in 1:160) {
+        if (all(is.na(testing[,i])) == T) {
+                index <- cbind(index, i)
+        }
+}
+```   
+
+### Remove NA columns from traing and testing data sets
+
+```{r}
+training <- training[,-index]
+testing <- testing[,-index]
+```   
+### Removing other irrelevant variables   
+Having a look on the variables' names, we see that the first couple of variables are useless in making a prediction
+
+```{r}
+names(testing)
+
+training <- training[,8:60]
+testing <- testing[,8:60]
+```   
+# Creating Prediction Model
+### Create training and testing partitions
+
+```{r}
+library(caret)
+inTrain <- createDataPartition(y = training$classe, p=0.6,list=FALSE)
+trainingPartition <- training[inTrain,]
+testingPartition <- training[-inTrain,]
+```   
+## Training different prediction models
+
+First, we set a seed for reproducibility. Then train random forest, boosting and linear discriminant analysis models. in the LDA model we use repeated cross validation.
+```{r, eval=FALSE}
+set.seed(3433)
+model_rf <- train(classe ~ .,  method="rf", data=trainingPartition)    
+model_gbm <-train(classe ~ ., method = 'gbm', data = trainingPartition)
+model_lda_CV <- train(classe ~ ., method="lda",  data=trainingPartition, trControl = trainControl(method = "repeatedcv", number = 10, repeats = 10))
+```   
+
+```{r, echo=FALSE}
+load("model_rf.RData")
+load("model_gbm.RData")
+load("model_lda_CV.RData")
+
+```   
+
+Then, we apply the trained models on our testing Partitions.
+```{r, cache=TRUE}
+prd_rf <- predict(model_rf, testingPartition)
+prd_gbm <- predict(model_gbm, testingPartition)
+prd_lda_CV <- predict(model_lda_CV, testingPartition)
+```
+
+### studying the accuracy of each model
+```{r}
+confusionMatrix(prd_rf, testingPartition$classe)$overall[1]
+confusionMatrix(prd_gbm, testingPartition$classe)$overall[1]
+confusionMatrix(prd_lda_CV, testingPartition$classe)$overall[1]
+```   
+we see that the accyracy is of the random forest model is very high.   
+
+## Combined model
+Finally we use our models to create a combined model.
+we create a data frame with classe variable and the predictions from the previous models, then we use this data frame to train a combined predictor
+```{r, eval=FALSE}
+Df <- data.frame(prd_rf, prd_gbm, prd_lda_CV, classe = testingPartition$classe)
+compFit <- train(classe ~ . , method = "rf", data = Df)
+```   
+
+```{r, echo=FALSE}
+load("compFit.RData")
+```   
+ 
+then we look at the combined model accuracy,
+
+```{r, cache=TRUE}
+
+compPred <- predict(compFit, testingPartition)
+confusionMatrix(compPred, testingPartition$classe)$overall['Accuracy']
+
+```   
+We see it is the same as that of the random forest model.
+
+### The expected out of sample error is:
+
+```{r}
+paste(round(unname(1-confusionMatrix(prd_rf, testingPartition$classe)$overall[1])*100, 1), "%")
+```
+
+# Submitting the 20 test case results
+Using the random forest model t make the predictions, then storing them in a charechter vector 
+
+```{r}
+predictfinal <- predict(model_rf, newdata = testing)
+answers <- as.character(predictfinal)
+answers
+```   
+
+Finally, using the Coursera provided code to create the solution files.
+```{r, eval=FALSE}
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+
+pml_write_files(answers)
+
+```   
